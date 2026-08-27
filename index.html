@@ -8,15 +8,17 @@
   @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@200;300;400;500;600;700;800&display=swap');
 
   :root{
-    --teal:#67EADD; --teal-2:#22DBC8;
+    --teal:#67EADD; --teal-2:#22DBC8; --teal-mid:#3EA2A8;
     --purple:#8B5CF6; --pink:#ec4899;
-    --green:#22DBC8;
-    --bg:#0A0A0B;
+    --green:#10B981;
+    --bg:#111010;
+    --card-solid:#1A1717;
     --card:rgba(255,255,255,0.035);
-    --border:rgba(255,255,255,0.09);
-    --border-hi:rgba(255,255,255,0.16);
-    --teal-border:rgba(103,234,221,0.28);
-    --text-1:#FFFFFF; --text-2:rgba(255,255,255,0.90); --text-3:rgba(255,255,255,0.74); --text-4:rgba(255,255,255,0.56);
+    --border:rgba(103,234,221,0.2);
+    --border-hi:rgba(103,234,221,0.5);
+    --teal-border:rgba(103,234,221,0.3);
+    --brand-gradient:linear-gradient(135deg, #67EADD 0%, #22DBC8 100%);
+    --text-1:#FFFFFF; --text-2:rgba(255,255,255,0.85); --text-3:rgba(255,255,255,0.7); --text-4:rgba(255,255,255,0.6);
   }
   *{box-sizing:border-box;}
   body{
@@ -40,12 +42,31 @@
   @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
 
   .refresh-panel{ text-align:right; }
+
+  .refresh-dock{
+    position:fixed; top:18px; right:28px; z-index:200;
+    opacity:0; transform:translateY(-10px) scale(.92);
+    pointer-events:none; transition:opacity .18s ease, transform .18s ease;
+  }
+  .refresh-dock.visible{ opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
+  .dock-btn{
+    width:52px; height:52px; padding:0 !important; border-radius:12px; box-sizing:border-box;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--card-solid) !important;
+    border:1.5px solid var(--teal) !important;
+    color:var(--teal) !important;
+    box-shadow:0 8px 22px rgba(0,0,0,.45), 0 0 14px rgba(103,234,221,.25);
+  }
+  .dock-btn svg{ display:block; }
+  .dock-btn:hover{ background:#221f1f !important; box-shadow:0 8px 22px rgba(0,0,0,.45), 0 0 20px rgba(103,234,221,.4); }
+  .dock-btn .spinner{ margin:0; width:20px; height:20px; border-width:2.5px; }
   .btn{ font-family:'Poppins',sans-serif; font-size:13.5px; font-weight:600; padding:9px 18px; border-radius:9px;
     border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.03); color:var(--text-1); cursor:pointer; white-space:nowrap;
     transition:background .15s ease, border-color .15s ease; }
   .btn:hover{ background:rgba(255,255,255,.08); border-color:var(--border-hi); }
   .btn:disabled{ opacity:.5; cursor:default; }
-  .btn.primary{ background:linear-gradient(120deg, rgba(103,234,221,.22), rgba(139,92,246,.16)); border-color:var(--teal-border); }
+  .btn.primary{ background:var(--brand-gradient); border-color:transparent; color:#0A0A0B; font-weight:700; }
+  .btn.primary:hover{ filter:brightness(1.06); }
   .last-refreshed{ font-size:11.5px; color:var(--text-4); margin-top:8px; }
   .last-refreshed b{ color:var(--text-2); font-weight:500; }
 
@@ -109,6 +130,49 @@
 
   .spinner{ display:inline-block; width:13px; height:13px; border-radius:50%; border:2px solid rgba(255,255,255,.25); border-top-color:var(--teal); animation:spin .7s linear infinite; vertical-align:-2px; margin-right:6px; }
   @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  .theme-toggle{ position:relative; display:inline-flex; align-items:center; cursor:pointer; flex-shrink:0; }
+  .theme-toggle input{ position:absolute; opacity:0; width:0; height:0; }
+  .theme-toggle-track{
+    width:50px; height:27px; border-radius:999px; background:rgba(255,255,255,.08); border:1px solid var(--border);
+    position:relative; transition:background .25s ease, border-color .25s ease; display:block;
+  }
+  .theme-toggle-thumb{
+    width:19px; height:19px; border-radius:50%; background:var(--brand-gradient); color:#0A0A0B;
+    position:absolute; left:3px; top:50%; transform:translateY(-50%);
+    transition:left .25s cubic-bezier(.4,0,.2,1), background .25s ease;
+    box-shadow:0 2px 6px rgba(0,0,0,.4);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .theme-toggle input:checked ~ .theme-toggle-track{ background:rgba(103,234,221,.18); border-color:var(--teal-border); }
+  .theme-toggle input:checked ~ .theme-toggle-track .theme-toggle-thumb{ left:24px; background:linear-gradient(135deg,#F59E0B,#fbbf24); }
+
+  html[data-theme="light"]{
+    --bg:#F5F6F8;
+    --card-solid:#FFFFFF;
+    --card:rgba(17,16,16,0.035);
+    --border:rgba(62,162,168,0.3);
+    --border-hi:rgba(62,162,168,0.55);
+    --teal-border:rgba(62,162,168,0.4);
+    --text-1:#111010; --text-2:rgba(17,16,16,0.85); --text-3:rgba(17,16,16,0.68); --text-4:rgba(17,16,16,0.52);
+  }
+  html[data-theme="light"] .btn:not(.primary):not(.dock-btn){ background:rgba(17,16,16,.045); border-color:rgba(17,16,16,.14); }
+  html[data-theme="light"] .btn:not(.primary):not(.dock-btn):hover{ background:rgba(17,16,16,.09); }
+  html[data-theme="light"] .toggle-chip{ background:rgba(17,16,16,.035); }
+  html[data-theme="light"] .toggle-chip.active{ background:rgba(17,16,16,.08); }
+  html[data-theme="light"] tbody td{ border-bottom-color:rgba(17,16,16,.08); }
+  html[data-theme="light"] .cat-chip{ background:rgba(17,16,16,.04); }
+  html[data-theme="light"] .totals-bar{ background:rgba(17,16,16,.1); }
+  html[data-theme="light"] .spinner{ border-color:rgba(17,16,16,.18); }
+  html[data-theme="light"] .eyebrow-badge{ background:linear-gradient(120deg, rgba(103,234,221,.18), rgba(139,92,246,.1)); }
+  html[data-theme="light"] #statusBanner.error{ background:rgba(236,72,153,.08); border-color:rgba(236,72,153,.35); color:#9d1256; }
+  html[data-theme="light"] #statusBanner.info{ background:rgba(103,234,221,.14); border-color:var(--teal-border); color:#136a62; }
+  html[data-theme="light"] .theme-toggle-track{ background:rgba(17,16,16,.06); }
+  html[data-theme="light"] .eyebrow-badge,
+  html[data-theme="light"] .pill{
+    color:#0F766E;
+    background:transparent;
+  }
 </style>
 </head>
 <body>
@@ -120,12 +184,25 @@
     <div class="hero-sub">Weekly funnel + pipeline-by-category, pulled straight from a public Google Sheet's CSV export on refresh — no API calls, no token usage, refresh as many times as you want.</div>
   </div>
   <div class="refresh-panel">
-    <button class="btn primary" id="refreshBtn" onclick="refreshData()">
-      <span id="refreshBtnLabel">&#8635; Refresh from Google Sheets</span>
-    </button>
+    <div style="display:flex; align-items:center; justify-content:flex-end; gap:12px;">
+      <label class="theme-toggle" title="Toggle dark / light mode">
+        <input type="checkbox" id="themeToggleInput" onchange="handleThemeToggle(this.checked)">
+        <span class="theme-toggle-track"><span class="theme-toggle-thumb" id="themeToggleThumb"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span></span>
+      </label>
+      <button class="btn primary refreshBtnEl" id="refreshBtnHeader" onclick="refreshData()">
+        <span class="refreshBtnLabelEl" style="display:inline-flex;align-items:center;gap:7px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>Refresh from Google Sheets</span>
+      </button>
+    </div>
     <div class="last-refreshed" id="lastRefreshed">Not yet refreshed &middot; showing seed data</div>
   </div>
 </header>
+
+<div class="refresh-dock" id="refreshDock">
+  <button class="btn primary refreshBtnEl dock-btn" id="refreshBtnDock" onclick="refreshData()" title="Refresh from Google Sheets">
+    <span class="refreshBtnLabelEl" style="display:flex;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg></span>
+  </button>
+</div>
+
 
 <div id="statusBanner"></div>
 
@@ -290,6 +367,19 @@ let CATS = [
 
 let lastRefreshMeta = null; // {timestamp, funnelWeeks, catWeeks, raw}
 
+// ================= dark / light theme toggle =================
+let currentTheme = 'dark';
+const MOON_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+const SUN_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>';
+function handleThemeToggle(isLight){
+  currentTheme = isLight ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', currentTheme);
+  const thumb = document.getElementById('themeToggleThumb');
+  if(thumb) thumb.innerHTML = isLight ? SUN_ICON : MOON_ICON;
+  buildToggles();
+  drawFunnelChart(); // grid lines / bar labels are theme-aware, need a redraw
+}
+
 // ================= helpers =================
 function fmt(n){ return Math.round(n).toLocaleString(); }
 function money(n){
@@ -350,7 +440,7 @@ function renderKPIs(){
 const SERIES_DEFS = [
   {key:'leads', name:'Leads', color:'#67EADD', active:true},
   {key:'hf', name:'HF', color:'#8B5CF6', active:true},
-  {key:'signups', name:'Self-Serve Signups', color:'#F59E0B', active:false},
+  {key:'signups', name:'Self-Serve Signups', color:'#F59E0B', active:true},
 ];
 function buildToggles(){
   const row=document.getElementById('toggleRow');
@@ -358,11 +448,22 @@ function buildToggles(){
   SERIES_DEFS.forEach(s=>{
     const chip=document.createElement('div');
     chip.className='toggle-chip'+(s.active?' active':'');
-    chip.innerHTML=`<span class="dot" style="background:${s.color}"></span>${s.name}`;
+    chip.innerHTML=`<span class="dot" style="background:${seriesLineColor(s)}"></span>${s.name}`;
     chip.addEventListener('click',()=>{ s.active=!s.active; chip.classList.toggle('active', s.active); drawFunnelChart(); });
     row.appendChild(chip);
   });
 }
+function gridLineColor(){ return currentTheme==='light' ? 'rgba(17,16,16,.09)' : 'rgba(255,255,255,.06)'; }
+function barLabelColor(){ return currentTheme==='light' ? '#0d3d38' : '#cdfdf6'; }
+
+function seriesLineColor(s){
+  return s.color;
+}
+function seriesLabelColor(s){
+  if(currentTheme==='light' && s.key==='leads') return '#000000';
+  return s.color;
+}
+
 function drawFunnelChart(){
   const svg=document.getElementById('funnelChart');
   const labels=FUNNEL.map(d=>d.week);
@@ -388,7 +489,7 @@ function drawFunnelChart(){
 
   ticks.forEach(t=>{
     const y=padTop+(chartH-(t/maxBar)*chartH);
-    svgContent+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,.06)" stroke-width="1"/>`;
+    svgContent+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="${gridLineColor()}" stroke-width="1"/>`;
     svgContent+=`<text x="${(padL-10).toFixed(1)}" y="${(y+3.5).toFixed(1)}" text-anchor="end" class="axis-label">${t.toLocaleString()}</text>`;
   });
 
@@ -397,7 +498,7 @@ function drawFunnelChart(){
     const x=padL+i*PER_WEEK+gap/2;
     const y=padTop+(chartH-bh);
     svgContent+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="url(#barGrad)" filter="url(#glowBar)"><title>${labels[i]}: ${barVals[i].toLocaleString()} traffic</title></rect>`;
-    svgContent+=`<text x="${(x+barW/2).toFixed(1)}" y="${Math.max(y-6,20).toFixed(1)}" text-anchor="middle" style="font-size:10.5px;font-weight:600;fill:#cdfdf6;">${barVals[i].toLocaleString()}</text>`;
+    svgContent+=`<text x="${(x+barW/2).toFixed(1)}" y="${Math.max(y-6,20).toFixed(1)}" text-anchor="middle" style="font-size:10.5px;font-weight:600;fill:${barLabelColor()};">${barVals[i].toLocaleString()}</text>`;
   }
 
   activeSeries.forEach((s,idx)=>{
@@ -408,11 +509,17 @@ function drawFunnelChart(){
       const y=padTop+(chartH-(vals[i]/maxV)*chartH*0.85);
       points.push([x,y]);
     }
-    svgContent+=`<path d="${smoothPath(points)}" stroke="${s.color}" stroke-width="2.4" fill="none" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-${idx})" opacity="0.95"/>`;
+    const lineColor = seriesLineColor(s);
+    if(currentTheme==='light'){
+      // thin black halo underneath so the line separates cleanly from the teal bars
+      svgContent+=`<path d="${smoothPath(points)}" stroke="#000000" stroke-width="5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.28"/>`;
+    }
+    svgContent+=`<path d="${smoothPath(points)}" stroke="${lineColor}" stroke-width="2.4" fill="none" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-${idx})" opacity="0.95"/>`;
     const labelDy = idx%2===0 ? -9 : 15;
     points.forEach((p,i)=>{
-      svgContent+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${s.color}"><title>${s.name} ${labels[i]}: ${vals[i]}</title></circle>`;
-      svgContent+=`<text x="${p[0].toFixed(1)}" y="${(p[1]+labelDy).toFixed(1)}" text-anchor="middle" style="font-size:9.5px;font-weight:600;fill:${s.color};">${vals[i]}</text>`;
+      const dotStroke = currentTheme==='light' ? ' stroke="#000000" stroke-width="1"' : '';
+      svgContent+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${lineColor}"${dotStroke}><title>${s.name} ${labels[i]}: ${vals[i]}</title></circle>`;
+      svgContent+=`<text x="${p[0].toFixed(1)}" y="${(p[1]+labelDy).toFixed(1)}" text-anchor="middle" style="font-size:9.5px;font-weight:600;fill:${seriesLabelColor(s)};">${vals[i]}</text>`;
     });
   });
 
@@ -675,11 +782,25 @@ function parseCatsCSV(rows){
   return out;
 }
 
+const REFRESH_SVG_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>';
+const REFRESH_SVG_ICON_BIG = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>';
+
+function setRefreshButtonsState(isLoading){
+  const headerBtn = document.getElementById('refreshBtnHeader');
+  const dockBtn = document.getElementById('refreshBtnDock');
+  [headerBtn, dockBtn].forEach(b=>{ if(b) b.disabled = isLoading; });
+  const headerLabel = headerBtn ? headerBtn.querySelector('.refreshBtnLabelEl') : null;
+  const dockLabel = dockBtn ? dockBtn.querySelector('.refreshBtnLabelEl') : null;
+  if(headerLabel) headerLabel.innerHTML = isLoading
+    ? '<span class="spinner"></span>Pulling from Google Sheets…'
+    : REFRESH_SVG_ICON+'Refresh from Google Sheets';
+  if(dockLabel) dockLabel.innerHTML = isLoading
+    ? '<span class="spinner"></span>'
+    : REFRESH_SVG_ICON_BIG;
+}
+
 async function refreshData(){
-  const btn=document.getElementById('refreshBtn');
-  const label=document.getElementById('refreshBtnLabel');
-  btn.disabled=true;
-  label.innerHTML='<span class="spinner"></span>Pulling from Google Sheets…';
+  setRefreshButtonsState(true);
   clearStatus();
 
   try{
@@ -700,6 +821,7 @@ async function refreshData(){
     lastRefreshMeta = { timestamp: new Date() };
     document.getElementById('lastRefreshed').innerHTML =
       `Last refreshed <b>${lastRefreshMeta.timestamp.toLocaleString()}</b> &middot; direct from Google Sheets, no API calls`;
+    document.getElementById('refreshBtnDock').title = 'Last refreshed '+lastRefreshMeta.timestamp.toLocaleString();
     document.getElementById('datasourceBody').innerHTML =
       `<b>Live pull succeeded</b> — read straight from the public sheet, zero token usage.<br>
        Funnel weeks loaded: <b>${FUNNEL.map(d=>d.week).join(', ')}</b><br>
@@ -711,13 +833,22 @@ async function refreshData(){
     console.error(err);
     showStatus('Refresh failed: '+err.message, 'error');
   }finally{
-    btn.disabled=false;
-    label.innerHTML='&#8635; Refresh from Google Sheets';
+    setRefreshButtonsState(false);
   }
 }
 
 // pull live data once on load, in addition to on-demand refresh
 window.addEventListener('load', refreshData);
+
+// dock the refresh button (shrunk to icon-only) once the hero header scrolls out of view
+const refreshDockEl = document.getElementById('refreshDock');
+const DOCK_SCROLL_THRESHOLD = 160;
+function updateDockVisibility(){
+  if(window.scrollY > DOCK_SCROLL_THRESHOLD) refreshDockEl.classList.add('visible');
+  else refreshDockEl.classList.remove('visible');
+}
+window.addEventListener('scroll', updateDockVisibility, { passive:true });
+updateDockVisibility();
 </script>
 </body>
 </html>
