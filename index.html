@@ -76,6 +76,11 @@
   #statusBanner.info{ display:block; background:rgba(103,234,221,.08); border:1px solid var(--teal-border); color:var(--teal); }
 
   .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:12px; margin-bottom:26px; }
+  .glance-title{ font-size:1.1rem; font-weight:700; margin:0 0 12px; letter-spacing:-.01em; }
+  .trend-tri{ display:inline-flex; align-items:center; margin-left:7px; vertical-align:middle; }
+  .trend-up svg{ fill:#10B981; }
+  .trend-down svg{ fill:#EF4444; }
+  .trend-flat{ color:#FACC15; font-weight:800; font-size:14px; line-height:1; margin-left:7px; }
 
   /* "Rolling View" style segmented control, matching the prototype's KPI range selector */
   .segmented{ display:inline-flex; position:relative; border-radius:12px; padding:4px; gap:2px;
@@ -237,6 +242,7 @@
 
 <div id="statusBanner"></div>
 
+<h2 class="glance-title">At a Glance</h2>
 <div class="segmented" id="kpiRangeSelector">
   <div class="seg-highlight" id="kpiSegHighlight"></div>
   <button class="seg-btn active" data-range="thisweek">This Week</button>
@@ -478,6 +484,10 @@ function money(n){
   if(n>=1000) return '$'+(n/1000).toFixed(0)+'K';
   return '$'+Math.round(n);
 }
+// N/A-aware display helpers: a null/undefined value (genuinely blank cell) always shows as
+// "N/A"; an actual 0 (explicitly recorded) always shows as 0, never conflated with N/A.
+function fmtOrNA(n){ return (n===null || n===undefined) ? 'N/A' : fmt(n); }
+function moneyOrNA(n){ return (n===null || n===undefined) ? 'N/A' : money(n); }
 function pct(x){ if(!isFinite(x)) return '0.0%'; return (x*100).toFixed(2)+'%'; }
 function smoothPath(points){
   if(points.length<2) return '';
@@ -525,19 +535,51 @@ function getRangeSlice(range){
 // series whose value is meaningful as "% of traffic" in the sub-label
 const PCT_OF_TRAFFIC_KEYS = new Set(['leads','hf','signups','total_leads']);
 
+// Sums a list of values while skipping genuinely-blank (null) cells rather than treating
+// them as 0. Returns null (→ shows "N/A") only if every value in the range was blank.
+function sumSkippingNulls(values){
+  let sum = 0, any = false;
+  values.forEach(v=>{ if(v!=null){ sum+=v; any=true; } });
+  return any ? sum : null;
+}
+
+const TRIANGLE_UP_SVG = '<svg width="10" height="10" viewBox="0 0 10 10"><polygon points="5,0 10,10 0,10"/></svg>';
+const TRIANGLE_DOWN_SVG = '<svg width="10" height="10" viewBox="0 0 10 10"><polygon points="0,0 10,0 5,10"/></svg>';
+function getTrendIndicatorHTML(currentVal, previousVal){
+  if(currentVal==null || previousVal==null) return '';
+  if(currentVal > previousVal) return `<span class="trend-tri trend-up" title="Up from the previous week">${TRIANGLE_UP_SVG}</span>`;
+  if(currentVal < previousVal) return `<span class="trend-tri trend-down" title="Down from the previous week">${TRIANGLE_DOWN_SVG}</span>`;
+  return `<span class="trend-tri trend-flat" title="Same as the previous week">=</span>`;
+}
+
 function renderKPIs(range){
   currentKpiRange = range || currentKpiRange;
   const {slice, label} = getRangeSlice(currentKpiRange);
   const catsTotalMap = buildCatsTotalMap();
-  const trafficSum = slice.reduce((a,b)=>a+b.traffic,0);
+  const trafficSum = sumSkippingNulls(slice.map(b=>b.traffic));
 
-  const kpis = [{label:'Traffic (Organic)', value:fmt(trafficSum), sub:label}];
+  // trend triangles apply when viewing "This Week", compared against Last Week
+  let prevSlice = null;
+  if(currentKpiRange==='thisweek'){
+    const prevIdx = FUNNEL.length-2;
+    if(prevIdx>=0) prevSlice = [FUNNEL[prevIdx]];
+  }
+  const prevTrafficSum = prevSlice ? sumSkippingNulls(prevSlice.map(b=>b.traffic)) : null;
+
+  const kpis = [{
+    label:'Traffic (Organic)',
+    value: fmtOrNA(trafficSum),
+    sub: label,
+    trend: prevSlice ? getTrendIndicatorHTML(trafficSum, prevTrafficSum) : ''
+  }];
   SERIES_DEFS.forEach(s=>{
-    const sum = slice.reduce((a,d)=>a+seriesValue(s.key,d,catsTotalMap),0);
+    const sum = sumSkippingNulls(slice.map(d=>seriesValue(s.key,d,catsTotalMap)));
+    const prevSum = prevSlice ? sumSkippingNulls(prevSlice.map(d=>seriesValue(s.key,d,catsTotalMap))) : null;
     kpis.push({
       label: s.name,
-      value: s.isCurrency ? money(sum) : fmt(sum),
-      sub: PCT_OF_TRAFFIC_KEYS.has(s.key) ? pct(sum/trafficSum)+' of traffic' : label
+      value: s.isCurrency ? moneyOrNA(sum) : fmtOrNA(sum),
+      sub: (sum!=null && trafficSum!=null && PCT_OF_TRAFFIC_KEYS.has(s.key)) ? pct(sum/trafficSum)+' of traffic' : label,
+      trend: prevSlice ? getTrendIndicatorHTML(sum, prevSum) : ''
     });
   });
 
@@ -546,7 +588,7 @@ function renderKPIs(range){
   kpis.forEach(k=>{
     const div=document.createElement('div');
     div.className='kpi-card glass';
-    div.innerHTML=`<div class="kpi-label">${k.label}</div><div class="kpi-value">${k.value}</div><div class="kpi-sub">${k.sub}</div>`;
+    div.innerHTML=`<div class="kpi-label">${k.label}</div><div class="kpi-value">${k.value}${k.trend}</div><div class="kpi-sub">${k.sub}</div>`;
     row.appendChild(div);
   });
 }
@@ -601,14 +643,16 @@ function buildCatsTotalMap(){
 function seriesValue(key, funnelRow, catsTotalMap){
   if(key==='total_leads'){
     const total = catsTotalMap[funnelRow.weekKey];
-    const ma = total ? (total.ma||0) : 0;
-    return (funnelRow.signups||0) + (funnelRow.leads||0) + ma;
+    const ma = total ? total.ma : null;
+    if(funnelRow.signups==null && funnelRow.leads==null && ma==null) return null;
+    return (funnelRow.signups||0) + (funnelRow.leads||0) + (ma||0);
   }
   if(['ms','ma','opps','cw','arr'].includes(key)){
     const total = catsTotalMap[funnelRow.weekKey];
-    return total ? (total[key]||0) : 0;
+    if(!total) return null;
+    return total[key]===undefined ? null : total[key];
   }
-  return funnelRow[key]||0;
+  return funnelRow[key]===undefined ? null : funnelRow[key];
 }
 function buildToggles(){
   const row=document.getElementById('toggleRow');
@@ -649,13 +693,13 @@ function drawFunnelChart(){
   const PER_WEEK = Math.max(18, Math.min(140, chartAreaWidth/visibleWeeks));
   const gap=10, barW=PER_WEEK-gap;
   const W=padL+padR+n*PER_WEEK;
-  const maxBar=Math.max(...barVals,1)*1.15;
+  const maxBar=Math.max(...barVals.filter(v=>v!=null),1)*1.15;
   const ticks=niceTicks(maxBar,4);
   const activeSeries=SERIES_DEFS.filter(s=>s.active);
   const catsTotalMap = buildCatsTotalMap();
   // currency series (S0 nswARR) get their own independent scale further down — excluding
   // them here keeps the shared scale meaningful for the count-based series (Leads, HF, etc.)
-  const nonCurrencyVals = activeSeries.filter(s=>!s.isCurrency).flatMap(s=>FUNNEL.map(d=>seriesValue(s.key, d, catsTotalMap)));
+  const nonCurrencyVals = activeSeries.filter(s=>!s.isCurrency).flatMap(s=>FUNNEL.map(d=>seriesValue(s.key, d, catsTotalMap))).filter(v=>v!=null);
   const maxV=Math.max(...nonCurrencyVals,1)*1.25;
 
   let defs=`<defs><linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
@@ -671,6 +715,7 @@ function drawFunnelChart(){
   });
 
   for(let i=0;i<n;i++){
+    if(barVals[i]==null) continue; // genuinely blank cell — no bar drawn, not treated as 0
     const bh=(barVals[i]/maxBar)*chartH;
     const x=padL+i*PER_WEEK+gap/2;
     const y=padTop+(chartH-bh);
@@ -682,22 +727,36 @@ function drawFunnelChart(){
     const vals=FUNNEL.map(d=>seriesValue(s.key, d, catsTotalMap));
     // currency series scale to their OWN max, not the shared count-based maxV, so a big
     // dollar figure doesn't flatten every other line into an invisible sliver
-    const ownMax = s.isCurrency ? Math.max(...vals,1)*1.25 : maxV;
+    const ownMax = s.isCurrency ? Math.max(...vals.filter(v=>v!=null),1)*1.25 : maxV;
+    // points[i] is null wherever the underlying data is null (genuinely blank), so gaps in
+    // the data become gaps in the line instead of being drawn as if they were zero
     let points=[];
     for(let i=0;i<n;i++){
+      if(vals[i]==null){ points.push(null); continue; }
       const x=padL+i*PER_WEEK+PER_WEEK/2;
       const y=padTop+(chartH-(vals[i]/ownMax)*chartH*0.85);
       points.push([x,y]);
     }
     const lineColor = seriesLineColor(s);
     const dashAttr = s.isCurrency ? ' stroke-dasharray="7,4"' : '';
-    if(currentTheme==='light'){
-      // thin black halo underneath so the line separates cleanly from the teal bars
-      svgContent+=`<path d="${smoothPath(points)}" stroke="#000000" stroke-width="5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.28"${dashAttr}/>`;
-    }
-    svgContent+=`<path d="${smoothPath(points)}" stroke="${lineColor}" stroke-width="2.4" fill="none" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-${idx})" opacity="0.95"${dashAttr}/>`;
+    // break into separate contiguous segments at each null so the path never connects across a gap
+    const segments=[];
+    let cur=[];
+    points.forEach(p=>{
+      if(p==null){ if(cur.length) segments.push(cur); cur=[]; }
+      else cur.push(p);
+    });
+    if(cur.length) segments.push(cur);
+    segments.forEach(seg=>{
+      if(currentTheme==='light'){
+        // thin black halo underneath so the line separates cleanly from the teal bars
+        svgContent+=`<path d="${smoothPath(seg)}" stroke="#000000" stroke-width="5" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.28"${dashAttr}/>`;
+      }
+      svgContent+=`<path d="${smoothPath(seg)}" stroke="${lineColor}" stroke-width="2.4" fill="none" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow-${idx})" opacity="0.95"${dashAttr}/>`;
+    });
     const labelDy = idx%2===0 ? -9 : 15;
     points.forEach((p,i)=>{
+      if(p==null) return; // no dot/label for a genuinely blank cell
       const dotStroke = currentTheme==='light' ? ' stroke="#000000" stroke-width="1"' : '';
       const displayVal = s.isCurrency ? money(vals[i]) : vals[i].toLocaleString();
       svgContent+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${lineColor}"${dotStroke}><title>${s.name} ${labels[i]}: ${displayVal}</title></circle>`;
@@ -759,14 +818,14 @@ function renderFunnelTable(){
     const tr=document.createElement('tr');
     tr.innerHTML=`
       <td class="week-cell">${d.week}</td>
-      <td>${fmt(d.traffic)}</td>
-      <td>${fmt(d.leads)}</td>
-      <td>${fmt(d.hf)}</td>
-      <td>${d.cvr_lead}</td>
-      <td>${d.cvr_hf}</td>
-      <td>${d.signups!=null?fmt(d.signups):'<span class="zero-txt">—</span>'}</td>
-      <td>${d.ss_leads!=null?fmt(d.ss_leads):'<span class="zero-txt">—</span>'}</td>
-      <td>${d.cvr_combined?d.cvr_combined:'<span class="zero-txt">—</span>'}</td>`;
+      <td>${fmtOrNA(d.traffic)}</td>
+      <td>${fmtOrNA(d.leads)}</td>
+      <td>${fmtOrNA(d.hf)}</td>
+      <td>${d.cvr_lead ? d.cvr_lead : '<span class="zero-txt">N/A</span>'}</td>
+      <td>${d.cvr_hf ? d.cvr_hf : '<span class="zero-txt">N/A</span>'}</td>
+      <td>${d.signups!=null?fmt(d.signups):'<span class="zero-txt">N/A</span>'}</td>
+      <td>${d.ss_leads!=null?fmt(d.ss_leads):'<span class="zero-txt">N/A</span>'}</td>
+      <td>${d.cvr_combined?d.cvr_combined:'<span class="zero-txt">N/A</span>'}</td>`;
     body.appendChild(tr);
   });
 }
@@ -777,26 +836,26 @@ function renderCatTable(){
   const body=document.querySelector('#catTable tbody');
   body.innerHTML='';
   CATS.forEach((w,idx)=>{
-    const total=w.categories.find(c=>c.name==='Total')||{leads:0,hf:0,ms:0,ma:0,opps:0,cw:0,arr:0};
+    const total=w.categories.find(c=>c.name==='Total')||{leads:null,hf:null,ms:null,ma:null,opps:null,cw:null,arr:null};
     const tr=document.createElement('tr');
     tr.className='cat-toggle';
     tr.innerHTML=`
       <td class="week-cell"><span class="chev">&#9656;</span>${w.week}</td>
-      <td>${fmt(w.traffic)}</td>
-      <td>${fmt(total.leads)}</td>
-      <td>${fmt(total.hf)}</td>
-      <td>${fmt(total.ms)}</td>
-      <td>${fmt(total.ma)}</td>
-      <td>${fmt(total.opps)}</td>
-      <td>${total.cw>0?fmt(total.cw):'<span class="zero-txt">0</span>'}</td>
-      <td class="pos-txt">${money(total.arr)}</td>`;
+      <td>${fmtOrNA(w.traffic)}</td>
+      <td>${fmtOrNA(total.leads)}</td>
+      <td>${fmtOrNA(total.hf)}</td>
+      <td>${fmtOrNA(total.ms)}</td>
+      <td>${fmtOrNA(total.ma)}</td>
+      <td>${fmtOrNA(total.opps)}</td>
+      <td>${total.cw==null ? '<span class="zero-txt">N/A</span>' : (total.cw>0?fmt(total.cw):'<span class="zero-txt">0</span>')}</td>
+      <td class="pos-txt">${moneyOrNA(total.arr)}</td>`;
     body.appendChild(tr);
 
     const detailTr=document.createElement('tr');
     detailTr.className='cat-detail-row hidden';
     const chips=w.categories.filter(c=>c.name!=='Total').map(c=>{
       const color=catColors[c.name]||'#fff';
-      return `<div class="cat-chip"><span style="width:7px;height:7px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color};display:inline-block;"></span>${c.name}: <b>${fmt(c.leads)} leads</b> &middot; ${fmt(c.opps)} opps &middot; ${money(c.arr)}</div>`;
+      return `<div class="cat-chip"><span style="width:7px;height:7px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color};display:inline-block;"></span>${c.name}: <b>${fmtOrNA(c.leads)} leads</b> &middot; ${fmtOrNA(c.opps)} opps &middot; ${moneyOrNA(c.arr)}</div>`;
     }).join('');
     const td=document.createElement('td');
     td.colSpan=9;
@@ -937,6 +996,15 @@ function parseNum(s){
   if(cleaned==='') return NaN;
   return parseFloat(cleaned);
 }
+// Distinguishes a genuinely blank cell (null = "N/A", not plotted, not summed) from an
+// explicit 0 (a real recorded zero, treated normally everywhere).
+function parseNumOrNull(s){
+  if(s==null) return null;
+  const cleaned = String(s).replace(/[$,%]/g,'').trim();
+  if(cleaned==='') return null;
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? null : n;
+}
 
 // Tab 1 ("Overall Conversion Rates"): rows like 08/23, 962, 10, 5, 1.04%, 0.52%, 31, 41, 4.26%
 // Quarter-block headers and blanks are skipped automatically since they don't match MM/DD.
@@ -945,18 +1013,17 @@ function parseFunnelCSV(rows){
   for(const r of rows){
     const week=(r[0]||'').trim();
     if(!/^\d{1,2}\/\d{1,2}$/.test(week)) continue;
-    const traffic=parseNum(r[1]);
-    if(!isFinite(traffic)) continue;
+    const traffic=parseNumOrNull(r[1]);
     out.push({
       week,
       weekKey: parseInt(week.replace('/',''),10),
       traffic,
-      leads: parseNum(r[2])||0,
-      hf: parseNum(r[3])||0,
+      leads: parseNumOrNull(r[2]),
+      hf: parseNumOrNull(r[3]),
       cvr_lead: (r[4]||'').trim(),
       cvr_hf: (r[5]||'').trim(),
-      signups: r[6]!==undefined && String(r[6]).trim()!=='' ? parseNum(r[6]) : null,
-      ss_leads: r[7]!==undefined && String(r[7]).trim()!=='' ? parseNum(r[7]) : null,
+      signups: r[6]!==undefined && String(r[6]).trim()!=='' ? parseNumOrNull(r[6]) : null,
+      ss_leads: r[7]!==undefined && String(r[7]).trim()!=='' ? parseNumOrNull(r[7]) : null,
       cvr_combined: r[8]!==undefined && String(r[8]).trim()!=='' ? String(r[8]).trim() : null
     });
   }
@@ -987,13 +1054,13 @@ function parseCatsCSV(rows){
     if(current && catName && !current.closed){
       current.categories.push({
         name: catName,
-        leads: parseNum(r[3])||0,
-        hf: parseNum(r[4])||0,
-        ms: parseNum(r[5])||0,
-        ma: parseNum(r[6])||0,
-        opps: parseNum(r[7])||0,
-        cw: parseNum(r[8])||0,
-        arr: parseNum(r[9])||0
+        leads: parseNumOrNull(r[3]),
+        hf: parseNumOrNull(r[4]),
+        ms: parseNumOrNull(r[5]),
+        ma: parseNumOrNull(r[6]),
+        opps: parseNumOrNull(r[7]),
+        cw: parseNumOrNull(r[8]),
+        arr: parseNumOrNull(r[9])
       });
       if(catName.toLowerCase()==='total') current.closed=true;
     }
