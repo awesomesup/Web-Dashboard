@@ -18,6 +18,7 @@
     --border-hi:rgba(103,234,221,0.5);
     --teal-border:rgba(103,234,221,0.3);
     --brand-gradient:linear-gradient(135deg, #67EADD 0%, #22DBC8 100%);
+    --seg-grad:linear-gradient(115deg, #67EADD 0%, #22DBC8 32%, #06B6D4 62%, #8B5CF6 100%);
     --text-1:#FFFFFF; --text-2:rgba(255,255,255,0.85); --text-3:rgba(255,255,255,0.7); --text-4:rgba(255,255,255,0.6);
   }
   *{box-sizing:border-box;}
@@ -75,6 +76,17 @@
   #statusBanner.info{ display:block; background:rgba(103,234,221,.08); border:1px solid var(--teal-border); color:var(--teal); }
 
   .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:12px; margin-bottom:26px; }
+
+  /* "Rolling View" style segmented control, matching the prototype's KPI range selector */
+  .segmented{ display:inline-flex; position:relative; border-radius:12px; padding:4px; gap:2px;
+    background:rgba(255,255,255,.035); border:1px solid var(--border); margin-bottom:16px; flex-wrap:wrap; }
+  .segmented .seg-highlight{ position:absolute; top:4px; bottom:4px; border-radius:9px; background:var(--seg-grad);
+    opacity:.9; box-shadow:0 4px 16px -4px rgba(34,219,200,.5);
+    transition:left .35s cubic-bezier(.4,0,.2,1), width .35s cubic-bezier(.4,0,.2,1); z-index:0; }
+  .seg-btn{ position:relative; z-index:1; border:none; background:transparent; cursor:pointer; padding:7px 14px;
+    font-family:'Poppins',sans-serif; font-size:13px; font-weight:500; color:var(--text-3); border-radius:9px;
+    transition:color .2s ease; white-space:nowrap; }
+  .seg-btn.active{ color:#fff; text-shadow:0 1px 3px rgba(0,0,0,.35); font-weight:700; }
   .kpi-card{ padding:16px 16px 14px; }
   .kpi-label{ font-size:10.5px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--text-4); }
   .kpi-value{ font-size:1.55rem; font-weight:700; margin:5px 0 3px; transition:opacity .15s ease; }
@@ -173,6 +185,25 @@
     color:#0F766E;
     background:transparent;
   }
+
+  .chart-settings-wrap{ position:relative; flex-shrink:0; }
+  .icon-btn{
+    width:30px; height:30px; padding:0;
+    display:flex; align-items:center; justify-content:center;
+    background:transparent; border:none; color:var(--text-3); cursor:pointer;
+    transition:color .15s ease;
+  }
+  .icon-btn:hover{ color:var(--teal); }
+  .icon-btn.open{ color:var(--teal); }
+  .chart-settings-popover{
+    display:none; position:absolute; top:calc(100% + 8px); right:0; z-index:60; width:250px;
+    background:var(--card-solid); border:1px solid var(--teal-border); border-radius:12px; padding:16px;
+    box-shadow:0 14px 32px rgba(0,0,0,.45);
+  }
+  .chart-settings-popover.open{ display:block; }
+  .chart-settings-label{ font-size:11px; font-weight:600; color:var(--text-3); text-transform:uppercase; letter-spacing:.05em; display:block; margin-bottom:10px; }
+  .chart-settings-popover input[type=range]{ width:100%; accent-color:var(--teal); }
+  .chart-settings-value{ font-size:12.5px; color:var(--text-2); margin-top:9px; text-align:center; }
 </style>
 </head>
 <body>
@@ -206,6 +237,15 @@
 
 <div id="statusBanner"></div>
 
+<div class="segmented" id="kpiRangeSelector">
+  <div class="seg-highlight" id="kpiSegHighlight"></div>
+  <button class="seg-btn active" data-range="thisweek">This Week</button>
+  <button class="seg-btn" data-range="lastweek">Last Week</button>
+  <button class="seg-btn" data-range="2w">Last 2 Weeks</button>
+  <button class="seg-btn" data-range="4w">Last 4 Weeks</button>
+  <button class="seg-btn" data-range="qtd">Quarter to Date</button>
+  <button class="seg-btn" data-range="all">All-Time</button>
+</div>
 <div class="kpi-row" id="kpiRow"></div>
 
 <section id="funnel">
@@ -214,10 +254,20 @@
       <h2>Weekly Funnel Trend <span class="pill"><span class="livedot"></span>NORAM Organic</span></h2>
       <div class="section-sub">Traffic (bars) vs. RFD / HF / Self-Serve / Meetings / Opps (lines) — from the "Overall Conversion Rates" tab</div>
     </div>
+    <div class="chart-settings-wrap">
+      <button class="icon-btn" id="chartSettingsBtn" onclick="toggleChartSettings(event)" title="Graph settings" aria-label="Graph settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <div class="chart-settings-popover" id="chartSettingsPopover">
+        <label class="chart-settings-label" for="weeksSlider">Weeks to show</label>
+        <input type="range" id="weeksSlider" min="10" max="15" value="15" oninput="handleWeeksSliderChange(this.value)">
+        <div class="chart-settings-value" id="weeksSliderLabel">Last 15 weeks</div>
+      </div>
+    </div>
   </div>
   <div class="glass card-body">
     <div class="toggle-row" id="toggleRow"></div>
-    <div style="overflow-x:auto;"><svg id="funnelChart" viewBox="0 0 1360 460"></svg></div>
+    <div style="overflow-x:auto;" id="funnelChartViewport"><svg id="funnelChart" viewBox="0 0 1360 460"></svg></div>
   </div>
 </section>
 
@@ -369,6 +419,44 @@ let lastRefreshMeta = null; // {timestamp, funnelWeeks, catWeeks, raw}
 
 // ================= dark / light theme toggle =================
 let currentTheme = 'dark';
+
+// ================= chart settings: weeks-to-show window =================
+let weeksToShow = 15;
+function toggleChartSettings(e){
+  if(e) e.stopPropagation();
+  document.getElementById('chartSettingsPopover').classList.toggle('open');
+  document.getElementById('chartSettingsBtn').classList.toggle('open');
+}
+document.addEventListener('click', (e)=>{
+  const pop = document.getElementById('chartSettingsPopover');
+  const btn = document.getElementById('chartSettingsBtn');
+  if(pop && pop.classList.contains('open') && !pop.contains(e.target) && e.target!==btn && !btn.contains(e.target)){
+    pop.classList.remove('open');
+    btn.classList.remove('open');
+  }
+});
+function updateWeeksSliderBounds(total){
+  const slider = document.getElementById('weeksSlider');
+  if(!slider) return;
+  const sliderMin = Math.min(10, total) || 1;
+  slider.min = sliderMin;
+  slider.max = total;
+  if(weeksToShow > total) weeksToShow = total;
+  if(weeksToShow < sliderMin) weeksToShow = sliderMin;
+  slider.value = weeksToShow;
+  updateWeeksSliderLabel(total);
+}
+function updateWeeksSliderLabel(total){
+  const label = document.getElementById('weeksSliderLabel');
+  if(!label) return;
+  const t = total !== undefined ? total : FUNNEL.length;
+  label.textContent = weeksToShow >= t ? `Showing all ${t} weeks` : `Showing last ${weeksToShow} of ${t} weeks`;
+}
+function handleWeeksSliderChange(val){
+  weeksToShow = parseInt(val,10);
+  updateWeeksSliderLabel();
+  drawFunnelChart();
+}
 const MOON_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
 const SUN_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>';
 function handleThemeToggle(isLight){
@@ -405,27 +493,51 @@ function niceTicks(max,count){
 }
 
 // ================= KPI row =================
-function renderKPIs(){
-  const trafficSum = FUNNEL.reduce((a,b)=>a+b.traffic,0);
-  const leadsSum = FUNNEL.reduce((a,b)=>a+b.leads,0);
-  const hfSum = FUNNEL.reduce((a,b)=>a+b.hf,0);
-  const signupsSum = FUNNEL.reduce((a,b)=>a+(b.signups||0),0);
-  const ssLeadsSum = FUNNEL.reduce((a,b)=>a+(b.ss_leads||0),0);
-  const allCatTotals = CATS.map(w=>w.categories.find(c=>c.name==='Total')||{});
-  const opsSum = allCatTotals.reduce((a,b)=>a+(b.opps||0),0);
-  const cwSum = allCatTotals.reduce((a,b)=>a+(b.cw||0),0);
-  const arrSum = allCatTotals.reduce((a,b)=>a+(b.arr||0),0);
-  const maSum = allCatTotals.reduce((a,b)=>a+(b.ma||0),0);
+// ================= Rolling View range selector (drives the KPI row only) =================
+let currentKpiRange = 'thisweek';
 
-  const kpis = [
-    {label:'Traffic (Organic)', value:fmt(trafficSum), sub:FUNNEL.length+' weeks loaded'},
-    {label:'Leads', value:fmt(leadsSum), sub:pct(leadsSum/trafficSum)+' of traffic'},
-    {label:'HF', value:fmt(hfSum), sub:pct(hfSum/trafficSum)+' of traffic'},
-    {label:'Self-Serve Signups', value:fmt(signupsSum), sub:fmt(ssLeadsSum)+' SS + leads'},
-    {label:'Meetings Attended', value:fmt(maSum), sub:'across loaded weeks'},
-    {label:'Opportunities', value:fmt(opsSum), sub:cwSum+' closed won'},
-    {label:'S0 Pipeline (nswARR)', value:money(arrSum), sub:'sum of loaded weeks'},
-  ];
+function monthOf(weekKey){ return Math.floor(weekKey/100); } // weekKey is MMDD -> MM
+function quarterStartMonth(month){ return Math.floor((month-1)/3)*3+1; } // 1, 4, 7, or 10
+function getQtdStartIndex(){
+  if(FUNNEL.length===0) return 0;
+  const qStartMonth = quarterStartMonth(monthOf(FUNNEL[FUNNEL.length-1].weekKey));
+  for(let i=FUNNEL.length-1;i>=0;i--){
+    if(monthOf(FUNNEL[i].weekKey) < qStartMonth) return i+1;
+  }
+  return 0;
+}
+function getRangeSlice(range){
+  const n = FUNNEL.length;
+  if(n===0) return {slice:[], label:'no data'};
+  switch(range){
+    case 'thisweek': return {slice:FUNNEL.slice(n-1), label:FUNNEL[n-1].week};
+    case 'lastweek': { const i=Math.max(0,n-2); return {slice:FUNNEL.slice(i,i+1), label:FUNNEL[i].week}; }
+    case '2w': return {slice:FUNNEL.slice(Math.max(0,n-2)), label:'last 2 weeks'};
+    case '4w': return {slice:FUNNEL.slice(Math.max(0,n-4)), label:'last 4 weeks'};
+    case 'qtd': return {slice:FUNNEL.slice(getQtdStartIndex()), label:'quarter to date'};
+    case 'all': return {slice:FUNNEL.slice(), label:'all-time'};
+    default: return {slice:FUNNEL.slice(Math.max(0,n-4)), label:'last 4 weeks'};
+  }
+}
+// series whose value is meaningful as "% of traffic" in the sub-label
+const PCT_OF_TRAFFIC_KEYS = new Set(['leads','hf','signups','total_leads']);
+
+function renderKPIs(range){
+  currentKpiRange = range || currentKpiRange;
+  const {slice, label} = getRangeSlice(currentKpiRange);
+  const catsTotalMap = buildCatsTotalMap();
+  const trafficSum = slice.reduce((a,b)=>a+b.traffic,0);
+
+  const kpis = [{label:'Traffic (Organic)', value:fmt(trafficSum), sub:label}];
+  SERIES_DEFS.forEach(s=>{
+    const sum = slice.reduce((a,d)=>a+seriesValue(s.key,d,catsTotalMap),0);
+    kpis.push({
+      label: s.name,
+      value: s.isCurrency ? money(sum) : fmt(sum),
+      sub: PCT_OF_TRAFFIC_KEYS.has(s.key) ? pct(sum/trafficSum)+' of traffic' : label
+    });
+  });
+
   const row = document.getElementById('kpiRow');
   row.innerHTML='';
   kpis.forEach(k=>{
@@ -435,6 +547,32 @@ function renderKPIs(){
     row.appendChild(div);
   });
 }
+
+function wireSegmented(containerId, highlightId, onSelect){
+  const buttons = [...document.querySelectorAll('#'+containerId+' .seg-btn')];
+  const highlight = document.getElementById(highlightId);
+  function moveHi(btn){
+    highlight.style.left = btn.offsetLeft+'px';
+    highlight.style.width = btn.offsetWidth+'px';
+  }
+  buttons.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      buttons.forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      moveHi(btn);
+      onSelect(btn.dataset.range);
+    });
+  });
+  return { moveToActive: ()=>{
+    const activeBtn = buttons.find(b=>b.classList.contains('active'));
+    if(activeBtn) moveHi(activeBtn);
+  }};
+}
+const kpiSeg = wireSegmented('kpiRangeSelector', 'kpiSegHighlight', (range)=>{
+  renderKPIs(range);
+});
+window.addEventListener('load', ()=>{ kpiSeg.moveToActive(); });
+window.addEventListener('resize', ()=>{ kpiSeg.moveToActive(); });
 
 // ================= funnel chart =================
 const SERIES_DEFS = [
@@ -493,14 +631,21 @@ function seriesLabelColor(s){
 
 function drawFunnelChart(){
   const svg=document.getElementById('funnelChart');
+  const viewport=document.getElementById('funnelChartViewport');
   const labels=FUNNEL.map(d=>d.week);
   const barVals=FUNNEL.map(d=>d.traffic);
   const n=labels.length;
-  const PER_WEEK=Math.max(70, Math.min(120, 1360/Math.max(n,1)));
-  const gap=10, barW=PER_WEEK-gap;
+  updateWeeksSliderBounds(n);
   const padTop=26,padBottom=34,padL=56,padR=16,H=460;
   const chartH=H-padTop-padBottom;
-  const W=Math.max(padL+padR+n*PER_WEEK, 900);
+  // measure the true available width by clearing any previous explicit sizing first
+  viewport.style.width='';
+  const availableWidth = Math.max(viewport.clientWidth || 900, 300);
+  const chartAreaWidth = Math.max(availableWidth-padL-padR, 200);
+  const visibleWeeks = Math.max(1, Math.min(weeksToShow, n));
+  const PER_WEEK = Math.max(18, Math.min(140, chartAreaWidth/visibleWeeks));
+  const gap=10, barW=PER_WEEK-gap;
+  const W=padL+padR+n*PER_WEEK;
   const maxBar=Math.max(...barVals,1)*1.15;
   const ticks=niceTicks(maxBar,4);
   const activeSeries=SERIES_DEFS.filter(s=>s.active);
@@ -564,6 +709,15 @@ function drawFunnelChart(){
   }
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML=svgContent;
+  // Render at true native pixel size (not stretchy width:100%) so the parent's
+  // overflow-x:auto actually kicks in when the full data is wider than the current
+  // weeks-to-show window. At "all", W ends up <= availableWidth so no scrollbar appears.
+  svg.style.width = W+'px';
+  svg.style.maxWidth = 'none';
+  if(visibleWeeks < n){
+    // default view = the most recent weeks; the rest is reachable by scrolling left
+    viewport.scrollLeft = viewport.scrollWidth;
+  }
 }
 
 // ================= funnel table =================
@@ -851,6 +1005,7 @@ async function refreshData(){
 
     FUNNEL = newFunnel;
     CATS = newCats;
+    weeksToShow = Math.min(15, FUNNEL.length);
     renderAll();
 
     lastRefreshMeta = { timestamp: new Date() };
