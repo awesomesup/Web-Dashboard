@@ -267,7 +267,10 @@
   </div>
   <div class="glass card-body">
     <div class="toggle-row" id="toggleRow"></div>
-    <div style="overflow-x:auto;" id="funnelChartViewport"><svg id="funnelChart" viewBox="0 0 1360 460"></svg></div>
+    <div style="overflow-x:auto; position:relative;" id="funnelChartViewport">
+      <svg id="funnelChart" viewBox="0 0 1360 460"></svg>
+      <svg id="funnelAxisOverlay" style="position:absolute; left:0; top:0; pointer-events:none;" viewBox="0 0 56 460"></svg>
+    </div>
   </div>
 </section>
 
@@ -665,7 +668,6 @@ function drawFunnelChart(){
   ticks.forEach(t=>{
     const y=padTop+(chartH-(t/maxBar)*chartH);
     svgContent+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="${gridLineColor()}" stroke-width="1"/>`;
-    svgContent+=`<text x="${(padL-10).toFixed(1)}" y="${(y+3.5).toFixed(1)}" text-anchor="end" class="axis-label">${t.toLocaleString()}</text>`;
   });
 
   for(let i=0;i<n;i++){
@@ -718,6 +720,35 @@ function drawFunnelChart(){
     // default view = the most recent weeks; the rest is reachable by scrolling left
     viewport.scrollLeft = viewport.scrollWidth;
   }
+
+  // Y-axis overlay: pinned to the left of the viewport regardless of scroll position.
+  // The background rect masks whatever bar/line content is scrolled underneath it so the
+  // labels always read cleanly instead of overlapping scrolled-in data. Position is tracked
+  // via JS on scroll (see wireAxisOverlayScroll below) rather than CSS position:sticky.
+  const axisSvg = document.getElementById('funnelAxisOverlay');
+  const cardBg = currentTheme==='light' ? '#FFFFFF' : '#1A1717';
+  let axisContent = `<rect x="0" y="0" width="${padL}" height="${H}" style="fill:${cardBg};"/>`;
+  ticks.forEach(t=>{
+    const y=padTop+(chartH-(t/maxBar)*chartH);
+    axisContent += `<text x="${(padL-10).toFixed(1)}" y="${(y+3.5).toFixed(1)}" text-anchor="end" class="axis-label">${t.toLocaleString()}</text>`;
+  });
+  axisSvg.setAttribute('viewBox', `0 0 ${padL} ${H}`);
+  axisSvg.innerHTML = axisContent;
+  axisSvg.style.width = padL+'px';
+  axisSvg.style.height = H+'px';
+  axisSvg.style.left = viewport.scrollLeft+'px'; // sync immediately in case scroll was set programmatically above
+  wireAxisOverlayScroll();
+}
+
+let axisOverlayScrollWired = false;
+function wireAxisOverlayScroll(){
+  if(axisOverlayScrollWired) return;
+  axisOverlayScrollWired = true;
+  const viewport = document.getElementById('funnelChartViewport');
+  const axisSvg = document.getElementById('funnelAxisOverlay');
+  viewport.addEventListener('scroll', ()=>{
+    axisSvg.style.left = viewport.scrollLeft+'px';
+  }, { passive:true });
 }
 
 // ================= funnel table =================
