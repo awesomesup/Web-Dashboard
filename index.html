@@ -274,8 +274,10 @@
   <div class="glass card-body">
     <div class="toggle-row" id="toggleRow"></div>
     <div style="overflow-x:auto; position:relative;" id="funnelChartViewport">
+      <div style="position:sticky; left:0; top:0; float:left; margin-right:-56px; z-index:5;">
+        <svg id="funnelAxisOverlay" style="display:block; pointer-events:none;" viewBox="0 0 56 460"></svg>
+      </div>
       <svg id="funnelChart" viewBox="0 0 1360 460"></svg>
-      <svg id="funnelAxisOverlay" style="position:absolute; left:0; top:0; pointer-events:none;" viewBox="0 0 56 460"></svg>
     </div>
   </div>
 </section>
@@ -290,7 +292,7 @@
   <div class="glass card-body" style="overflow-x:auto;">
     <table id="s1Table">
       <thead><tr>
-        <th>Week</th><th>Traffic (Organic)</th><th>Leads</th><th>HF</th>
+        <th>Week</th><th>Traffic (Organic)</th><th>RFD</th><th>HF</th>
         <th>Traffic→Lead CVR</th><th>Traffic→HF CVR</th><th>Sign Ups</th><th>SS + Leads</th><th>Leads+SS CVR</th>
       </tr></thead>
       <tbody></tbody>
@@ -621,7 +623,7 @@ window.addEventListener('resize', ()=>{ kpiSeg.moveToActive(); });
 
 // ================= funnel chart =================
 const SERIES_DEFS = [
-  {key:'leads', name:'Leads', color:'#67EADD', active:true},
+  {key:'leads', name:'RFD', color:'#67EADD', active:true},
   {key:'hf', name:'HF', color:'#8B5CF6', active:true},
   {key:'signups', name:'Self-Serve Signups', color:'#F59E0B', active:true},
   {key:'total_leads', name:'Total Leads', color:'#D946EF', active:false},
@@ -679,8 +681,12 @@ function seriesLabelColor(s){
 function drawFunnelChart(){
   const svg=document.getElementById('funnelChart');
   const viewport=document.getElementById('funnelChartViewport');
-  const labels=FUNNEL.map(d=>d.week);
-  const barVals=FUNNEL.map(d=>d.traffic);
+  // Traffic is the control stat for this graph: a week where it's null or 0 (not yet
+  // populated — e.g. a future week the GA4 recipe hasn't reached) is excluded entirely,
+  // not just its own bar. No line series shows a point for that week either.
+  const graphFunnel = FUNNEL.filter(d => d.traffic!=null && d.traffic>0);
+  const labels=graphFunnel.map(d=>d.week);
+  const barVals=graphFunnel.map(d=>d.traffic);
   const n=labels.length;
   updateWeeksSliderBounds(n);
   const padTop=26,padBottom=34,padL=56,padR=16,H=460;
@@ -699,7 +705,7 @@ function drawFunnelChart(){
   const catsTotalMap = buildCatsTotalMap();
   // currency series (S0 nswARR) get their own independent scale further down — excluding
   // them here keeps the shared scale meaningful for the count-based series (Leads, HF, etc.)
-  const nonCurrencyVals = activeSeries.filter(s=>!s.isCurrency).flatMap(s=>FUNNEL.map(d=>seriesValue(s.key, d, catsTotalMap))).filter(v=>v!=null);
+  const nonCurrencyVals = activeSeries.filter(s=>!s.isCurrency).flatMap(s=>graphFunnel.map(d=>seriesValue(s.key, d, catsTotalMap))).filter(v=>v!=null);
   const maxV=Math.max(...nonCurrencyVals,1)*1.25;
 
   let defs=`<defs><linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
@@ -724,7 +730,7 @@ function drawFunnelChart(){
   }
 
   activeSeries.forEach((s,idx)=>{
-    const vals=FUNNEL.map(d=>seriesValue(s.key, d, catsTotalMap));
+    const vals=graphFunnel.map(d=>seriesValue(s.key, d, catsTotalMap));
     // currency series scale to their OWN max, not the shared count-based maxV, so a big
     // dollar figure doesn't flatten every other line into an invisible sliver
     const ownMax = s.isCurrency ? Math.max(...vals.filter(v=>v!=null),1)*1.25 : maxV;
@@ -780,13 +786,15 @@ function drawFunnelChart(){
     viewport.scrollLeft = viewport.scrollWidth;
   }
 
-  // Y-axis overlay: pinned to the left of the viewport regardless of scroll position.
-  // The background rect masks whatever bar/line content is scrolled underneath it so the
-  // labels always read cleanly instead of overlapping scrolled-in data. Position is tracked
-  // via JS on scroll (see wireAxisOverlayScroll below) rather than CSS position:sticky.
+  // Y-axis overlay: pinned to the left of the viewport via native CSS position:sticky
+  // (see the float+sticky+negative-margin wrapper in the HTML) — the browser handles this
+  // at the compositor level with zero lag, unlike the earlier JS-scroll-tracked approach.
+  // The background uses the exact same two CSS variables the glass card itself is built
+  // from (base page color + translucent tint), so it's a pixel-perfect match in both themes
+  // instead of a hardcoded guess that can drift out of sync with the real card background.
   const axisSvg = document.getElementById('funnelAxisOverlay');
-  const cardBg = currentTheme==='light' ? '#FFFFFF' : '#1A1717';
-  let axisContent = `<rect x="0" y="0" width="${padL}" height="${H}" style="fill:${cardBg};"/>`;
+  let axisContent = `<rect x="0" y="0" width="${padL}" height="${H}" style="fill:var(--bg);"/>`;
+  axisContent += `<rect x="0" y="0" width="${padL}" height="${H}" style="fill:var(--card);"/>`;
   ticks.forEach(t=>{
     const y=padTop+(chartH-(t/maxBar)*chartH);
     axisContent += `<text x="${(padL-10).toFixed(1)}" y="${(y+3.5).toFixed(1)}" text-anchor="end" class="axis-label">${t.toLocaleString()}</text>`;
@@ -795,19 +803,6 @@ function drawFunnelChart(){
   axisSvg.innerHTML = axisContent;
   axisSvg.style.width = padL+'px';
   axisSvg.style.height = H+'px';
-  axisSvg.style.left = viewport.scrollLeft+'px'; // sync immediately in case scroll was set programmatically above
-  wireAxisOverlayScroll();
-}
-
-let axisOverlayScrollWired = false;
-function wireAxisOverlayScroll(){
-  if(axisOverlayScrollWired) return;
-  axisOverlayScrollWired = true;
-  const viewport = document.getElementById('funnelChartViewport');
-  const axisSvg = document.getElementById('funnelAxisOverlay');
-  viewport.addEventListener('scroll', ()=>{
-    axisSvg.style.left = viewport.scrollLeft+'px';
-  }, { passive:true });
 }
 
 // ================= funnel table =================
@@ -904,11 +899,11 @@ function renderAll(){
 renderAll();
 
 // ================= live refresh — public sheet via JSONP, no API calls, no CORS issues =================
-const SHEET_ID = "1uEzYcms1zUHvK-7XPu-At3jRtKsyojOpbXHW0U9lPEw";
-const FUNNEL_GID = "0";
-const CATS_GID = "513010747";
+const SHEET_ID = "1V20Z5qmS2FngYXAUsuRkRqyLrEqhenSkn1X0tRbnY2o";
+const FUNNEL_GID = "0"; // CvR 2027
+const CATS_GIDS = ["1048622716", "1990955475", "264065823"]; // Copy of FY27Q1/Q2/Q3 NORAM Organic (by Segment / Inbound by Segment) — Traffic Recipe tab is intentionally not included
 const SHEET_URL_FUNNEL_EDIT = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit?gid=${FUNNEL_GID}`;
-const SHEET_URL_CATS_EDIT = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit?gid=${CATS_GID}`;
+const SHEET_URL_CATS_EDIT = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit?gid=${CATS_GIDS[CATS_GIDS.length-1]}`;
 
 function showStatus(msg, type){
   const el=document.getElementById('statusBanner');
@@ -1005,6 +1000,14 @@ function parseNumOrNull(s){
   const n = parseFloat(cleaned);
   return isNaN(n) ? null : n;
 }
+// A formula-driven cell (e.g. a CVR% dividing by a not-yet-populated future week's traffic)
+// can show a literal spreadsheet error like "#DIV/0!" instead of being blank. Treat that the
+// same as a genuinely empty cell — N/A, not a real value — rather than displaying the error text.
+function cleanCvrString(s){
+  const trimmed = (s||'').trim();
+  if(trimmed==='' || /^#[A-Z0-9\/]+[!?]?$/i.test(trimmed)) return '';
+  return trimmed;
+}
 
 // Tab 1 ("Overall Conversion Rates"): rows like 08/23, 962, 10, 5, 1.04%, 0.52%, 31, 41, 4.26%
 // Quarter-block headers and blanks are skipped automatically since they don't match MM/DD.
@@ -1014,17 +1017,18 @@ function parseFunnelCSV(rows){
     const week=(r[0]||'').trim();
     if(!/^\d{1,2}\/\d{1,2}$/.test(week)) continue;
     const traffic=parseNumOrNull(r[1]);
+    const [mm,dd] = week.split('/');
     out.push({
       week,
-      weekKey: parseInt(week.replace('/',''),10),
+      weekKey: parseInt(mm.padStart(2,'0')+dd.padStart(2,'0'),10),
       traffic,
       leads: parseNumOrNull(r[2]),
       hf: parseNumOrNull(r[3]),
-      cvr_lead: (r[4]||'').trim(),
-      cvr_hf: (r[5]||'').trim(),
+      cvr_lead: cleanCvrString(r[4]),
+      cvr_hf: cleanCvrString(r[5]),
       signups: r[6]!==undefined && String(r[6]).trim()!=='' ? parseNumOrNull(r[6]) : null,
       ss_leads: r[7]!==undefined && String(r[7]).trim()!=='' ? parseNumOrNull(r[7]) : null,
-      cvr_combined: r[8]!==undefined && String(r[8]).trim()!=='' ? String(r[8]).trim() : null
+      cvr_combined: cleanCvrString(r[8]) || null
     });
   }
   return out;
@@ -1039,9 +1043,16 @@ function parseCatsCSV(rows){
   let current=null;
   const isWeekStart = (weekCell, trafficCell) =>
     /^[\d\/]+\s*-\s*[\d\/]+$/.test(weekCell) && isFinite(parseNum(trafficCell));
+  // Robust to multiple real-world typos seen in this sheet:
+  //  - single-digit month/day with a slash ("05/3 - 05/9" should be weekKey 503, not 53)
+  //  - the slash dropped entirely ("0816 - 08/22" should be weekKey 816, not 0)
   const deriveWeekKey = (weekCell) => {
-    const before = weekCell.split('-')[0].replace(/\D/g,'').slice(0,4);
-    return parseInt(before,10) || 0;
+    const beforeDash = weekCell.split('-')[0].trim();
+    const slashMatch = beforeDash.match(/^(\d{1,2})\/(\d{1,2})/);
+    if(slashMatch) return parseInt(slashMatch[1].padStart(2,'0')+slashMatch[2].padStart(2,'0'), 10);
+    const digitsOnly = beforeDash.replace(/\D/g,'');
+    if(digitsOnly.length>=4) return parseInt(digitsOnly.slice(0,4),10);
+    return 0;
   };
   for(const r of rows){
     const weekCell=(r[0]||'').trim();
@@ -1091,20 +1102,38 @@ async function refreshData(){
   clearStatus();
 
   try{
-    const [funnelResp, catsResp] = await Promise.all([
+    const [funnelResp, ...catsResps] = await Promise.all([
       loadGvizTable(FUNNEL_GID),
-      loadGvizTable(CATS_GID)
+      ...CATS_GIDS.map(gid=>loadGvizTable(gid))
     ]);
 
     const newFunnel = parseFunnelCSV(gvizToRows(funnelResp));
-    const newCats = parseCatsCSV(gvizToRows(catsResp));
+    // DIAGNOSTIC: raw gviz rows for each category tab (first 6 rows), so we can see exactly
+    // what the Week column actually contains per tab — if one tab's cells are a genuinely
+    // different underlying type (e.g. real Date objects vs plain text), this reveals it
+    // directly instead of guessing from a text export.
+    const rawRowsPerTab = catsResps.map(resp => gvizToRows(resp).slice(0,6));
+    rawRowsPerTab.forEach((rows,i)=> console.log(`RAW ROWS for CATS_GIDS[${i}] = ${CATS_GIDS[i]}:`, rows));
+    const newCats = catsResps.flatMap(resp => parseCatsCSV(gvizToRows(resp)));
     if(newFunnel.length===0) throw new Error('Parsed 0 funnel rows — the sheet layout may have changed, or the tab isn\u2019t shared publicly anymore.');
-    if(newCats.length===0) throw new Error('Parsed 0 category weeks — the sheet layout may have changed, or the tab isn\u2019t shared publicly anymore.');
+    if(newCats.length===0) throw new Error('Parsed 0 category weeks — the sheet layout may have changed, or the tabs aren\u2019t shared publicly anymore.');
 
     FUNNEL = newFunnel;
     CATS = newCats;
     weeksToShow = Math.min(15, FUNNEL.length);
     renderAll();
+
+    // DIAGNOSTIC: full parsed CATS array in console, plus a per-week ARR resolution
+    // table in the Data Source panel — helps pinpoint exactly which weeks/fields the
+    // live sheet is actually returning vs. what's expected, without needing devtools.
+    console.log('RAW PARSED CATS:', JSON.parse(JSON.stringify(CATS)));
+    const arrDiagnostic = CATS.map(w=>{
+      const total = w.categories.find(c=>c.name.toLowerCase()==='total');
+      return `${w.week}: Total row ${total ? 'FOUND' : 'MISSING'}, arr=${total ? JSON.stringify(total.arr) : 'n/a'}`;
+    }).join('<br>');
+    const rawRowsDiagnostic = rawRowsPerTab.map((rows,i)=>
+      `<b>CATS_GIDS[${i}] = ${CATS_GIDS[i]}</b> (first 6 rows):<br><pre style="white-space:pre-wrap;font-size:10.5px;margin:4px 0 10px;">${rows.map(r=>JSON.stringify(r)).join('\n')}</pre>`
+    ).join('');
 
     lastRefreshMeta = { timestamp: new Date() };
     document.getElementById('lastRefreshed').innerHTML =
@@ -1114,7 +1143,11 @@ async function refreshData(){
       `<b>Live pull succeeded</b> — read straight from the public sheet, zero token usage.<br>
        Funnel weeks loaded: <b>${FUNNEL.map(d=>d.week).join(', ')}</b><br>
        Category weeks loaded: <b>${CATS.map(d=>d.week).join(', ')}</b><br>
-       Refresh as many times as you want — every click re-reads the sheet live, there's no caching.`;
+       Refresh as many times as you want — every click re-reads the sheet live, there's no caching.
+       <details style="margin-top:10px;"><summary style="cursor:pointer;color:var(--teal);">ARR diagnostic (per-week)</summary>
+       <div style="margin-top:6px;font-size:11px;line-height:1.7;">${arrDiagnostic}</div></details>
+       <details style="margin-top:10px;"><summary style="cursor:pointer;color:var(--teal);">Raw rows per category tab (debug)</summary>
+       <div style="margin-top:6px;">${rawRowsDiagnostic}</div></details>`;
     showStatus('&#10003; Refreshed straight from Google Sheets.', 'info');
 
   }catch(err){
