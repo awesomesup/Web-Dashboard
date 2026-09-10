@@ -138,6 +138,12 @@
   .totals-bar{ height:5px; border-radius:4px; background:rgba(255,255,255,.08); margin-top:8px; overflow:hidden; }
   .totals-bar-fill{ height:100%; background:linear-gradient(90deg,var(--teal),var(--purple)); border-radius:4px; }
 
+  .scroll-table-wrap{ max-height:380px; overflow-y:auto; overflow-x:auto; padding-top:0 !important; }
+  .scroll-table-wrap thead th{ position:sticky; top:0; background:var(--card-solid); z-index:2; }
+  .sort-th{ cursor:pointer; user-select:none; white-space:nowrap; }
+  .sort-th:hover{ color:var(--teal); }
+  .sort-arrow{ display:inline-block; margin-left:4px; font-size:9px; opacity:.9; }
+
   .datasource{ font-size:11.5px; color:var(--text-4); line-height:1.6; }
   .datasource b{ color:var(--text-2); font-weight:500; }
   .datasource a{ color:var(--teal); text-decoration:none; }
@@ -289,11 +295,11 @@
       <div class="section-sub">Raw weekly rows as pulled from the sheet</div>
     </div>
   </div>
-  <div class="glass card-body" style="overflow-x:auto;">
+  <div class="glass card-body scroll-table-wrap">
     <table id="s1Table">
       <thead><tr>
-        <th>Week</th><th>Traffic (Organic)</th><th>RFD</th><th>HF</th>
-        <th>Traffic→Lead CVR</th><th>Traffic→HF CVR</th><th>Sign Ups</th><th>SS + Leads</th><th>Leads+SS CVR</th>
+        <th class="sort-th" data-key="weekKey">Week</th><th class="sort-th" data-key="traffic">Traffic (Organic)</th><th class="sort-th" data-key="leads">RFD</th><th class="sort-th" data-key="hf">HF</th>
+        <th class="sort-th" data-key="cvr_lead">Traffic→Lead CVR</th><th class="sort-th" data-key="cvr_hf">Traffic→HF CVR</th><th class="sort-th" data-key="signups">Sign Ups</th><th class="sort-th" data-key="ss_leads">SS + Leads</th><th class="sort-th" data-key="cvr_combined">Leads+SS CVR</th>
       </tr></thead>
       <tbody></tbody>
     </table>
@@ -307,10 +313,10 @@
       <div class="section-sub">Click a row to expand category breakdown &middot; from the "NORAM Organic by Segment" tab</div>
     </div>
   </div>
-  <div class="glass card-body" style="overflow-x:auto;">
+  <div class="glass card-body scroll-table-wrap">
     <table id="catTable">
       <thead><tr>
-        <th>Week</th><th>Traffic</th><th>Leads</th><th>HF</th><th>Meetings Sched.</th><th>Meetings Att.</th><th>Opps</th><th>Closed Won</th><th>S0 Pipeline (nswARR)</th>
+        <th class="sort-th" data-key="weekKey">Week</th><th class="sort-th" data-key="traffic">Traffic</th><th class="sort-th" data-key="leads">Leads</th><th class="sort-th" data-key="hf">HF</th><th class="sort-th" data-key="ms">Meetings Sched.</th><th class="sort-th" data-key="ma">Meetings Att.</th><th class="sort-th" data-key="opps">Opps</th><th class="sort-th" data-key="cw">Closed Won</th><th class="sort-th" data-key="arr">S0 Pipeline (nswARR)</th>
       </tr></thead>
       <tbody></tbody>
     </table>
@@ -327,21 +333,9 @@
   <div class="totals-grid" id="catTotalsCard"></div>
 </section>
 
-<section id="datasourcePanel">
-  <div class="section-head">
-    <div>
-      <h2>Data Source</h2>
-      <div class="section-sub">So you can verify the refresh grabbed the right rows</div>
-    </div>
-  </div>
-  <div class="glass card-body datasource" id="datasourceBody">
-    Seed data baked into this file at build time &middot; press Refresh to pull live from Google Sheets.
-  </div>
-</section>
-
 <footer>
   <div><span style="color:var(--teal);">&#9679;</span> Workato Growth &amp; Marketing</div>
-  <div>Sources: <a href="https://docs.google.com/spreadsheets/d/1uEzYcms1zUHvK-7XPu-At3jRtKsyojOpbXHW0U9lPEw/edit?gid=0" target="_blank">Overall Conversion Rates</a> &middot; <a href="https://docs.google.com/spreadsheets/d/1uEzYcms1zUHvK-7XPu-At3jRtKsyojOpbXHW0U9lPEw/edit?gid=513010747" target="_blank">Pipeline by Category</a></div>
+  <div>Source: <a id="footerSheetLink" href="#" target="_blank">Google Sheet</a></div>
 </footer>
 
 <script>
@@ -513,10 +507,55 @@ let currentKpiRange = 'thisweek';
 
 function monthOf(weekKey){ return Math.floor(weekKey/100); } // weekKey is MMDD -> MM
 function quarterStartMonth(month){ return Math.floor((month-1)/3)*3+1; } // 1, 4, 7, or 10
-function getQtdStartIndex(){
+
+// Rows only carry MM/DD (no year), and the sheet is pre-scaffolded with placeholder rows
+// stretching a year or more into the future. A plain numeric MMDD sort/lookup breaks at
+// every year boundary (e.g. "01/03" as 103 sorts before "02/01" as 201, even though Jan
+// 2027 actually comes after Feb-Dec 2026). Reconstruct a real calendar date per row instead
+// (detecting year rollovers, e.g. Dec -> Jan) anchored to today's real date.
+function reconstructDatesForRows(rows){
+  function buildSequence(startYear){
+    const dates = [];
+    let prevMonth = -1;
+    let year = startYear;
+    for(const row of rows){
+      const mm = monthOf(row.weekKey);
+      const dd = row.weekKey%100;
+      if(prevMonth!==-1 && mm < prevMonth - 6) year++; // big backward month jump = crossed into a new year
+      dates.push(new Date(year, mm-1, dd));
+      prevMonth = mm;
+    }
+    return dates;
+  }
+  const today = new Date();
+  const candidateStartYears = [today.getFullYear()-1, today.getFullYear(), today.getFullYear()+1];
+  let best = null, bestScore = Infinity;
+  candidateStartYears.forEach(startYear=>{
+    const seq = buildSequence(startYear);
+    if(seq.length===0) return;
+    const first = seq[0], last = seq[seq.length-1];
+    const score = (today>=first && today<=last) ? 0 : Math.min(Math.abs(today-first), Math.abs(today-last));
+    if(score<bestScore){ bestScore=score; best=seq; }
+  });
+  return best || [];
+}
+function reconstructFunnelDates(){ return reconstructDatesForRows(FUNNEL); }
+function getThisWeekIndex(){
   if(FUNNEL.length===0) return 0;
-  const qStartMonth = quarterStartMonth(monthOf(FUNNEL[FUNNEL.length-1].weekKey));
-  for(let i=FUNNEL.length-1;i>=0;i--){
+  const dates = reconstructFunnelDates();
+  const today = new Date(); today.setHours(0,0,0,0);
+  let idx = 0;
+  for(let i=0;i<dates.length;i++){
+    if(dates[i] <= today) idx = i;
+    else break; // dates are chronological, so once we pass today we can stop
+  }
+  return idx;
+}
+
+function getQtdStartIndex(anchorIdx){
+  if(FUNNEL.length===0) return 0;
+  const qStartMonth = quarterStartMonth(monthOf(FUNNEL[anchorIdx].weekKey));
+  for(let i=anchorIdx;i>=0;i--){
     if(monthOf(FUNNEL[i].weekKey) < qStartMonth) return i+1;
   }
   return 0;
@@ -524,14 +563,15 @@ function getQtdStartIndex(){
 function getRangeSlice(range){
   const n = FUNNEL.length;
   if(n===0) return {slice:[], label:'no data'};
+  const thisWeekIdx = getThisWeekIndex();
   switch(range){
-    case 'thisweek': return {slice:FUNNEL.slice(n-1), label:FUNNEL[n-1].week};
-    case 'lastweek': { const i=Math.max(0,n-2); return {slice:FUNNEL.slice(i,i+1), label:FUNNEL[i].week}; }
-    case '2w': return {slice:FUNNEL.slice(Math.max(0,n-2)), label:'last 2 weeks'};
-    case '4w': return {slice:FUNNEL.slice(Math.max(0,n-4)), label:'last 4 weeks'};
-    case 'qtd': return {slice:FUNNEL.slice(getQtdStartIndex()), label:'quarter to date'};
-    case 'all': return {slice:FUNNEL.slice(), label:'all-time'};
-    default: return {slice:FUNNEL.slice(Math.max(0,n-4)), label:'last 4 weeks'};
+    case 'thisweek': return {slice:FUNNEL.slice(thisWeekIdx, thisWeekIdx+1), label:FUNNEL[thisWeekIdx].week};
+    case 'lastweek': { const i=Math.max(0,thisWeekIdx-1); return {slice:FUNNEL.slice(i,i+1), label:FUNNEL[i].week}; }
+    case '2w': { const i=Math.max(0,thisWeekIdx-1); return {slice:FUNNEL.slice(i,thisWeekIdx+1), label:'last 2 weeks'}; }
+    case '4w': { const i=Math.max(0,thisWeekIdx-3); return {slice:FUNNEL.slice(i,thisWeekIdx+1), label:'last 4 weeks'}; }
+    case 'qtd': { const i=getQtdStartIndex(thisWeekIdx); return {slice:FUNNEL.slice(i,thisWeekIdx+1), label:'quarter to date'}; }
+    case 'all': return {slice:FUNNEL.slice(0,thisWeekIdx+1), label:'all-time'}; // stop at "today", not the sheet's future placeholder rows
+    default: { const i=Math.max(0,thisWeekIdx-3); return {slice:FUNNEL.slice(i,thisWeekIdx+1), label:'last 4 weeks'}; }
   }
 }
 // series whose value is meaningful as "% of traffic" in the sub-label
@@ -563,7 +603,7 @@ function renderKPIs(range){
   // trend triangles apply when viewing "This Week", compared against Last Week
   let prevSlice = null;
   if(currentKpiRange==='thisweek'){
-    const prevIdx = FUNNEL.length-2;
+    const prevIdx = getThisWeekIndex()-1;
     if(prevIdx>=0) prevSlice = [FUNNEL[prevIdx]];
   }
   const prevTrafficSum = prevSlice ? sumSkippingNulls(prevSlice.map(b=>b.traffic)) : null;
@@ -644,10 +684,9 @@ function buildCatsTotalMap(){
 }
 function seriesValue(key, funnelRow, catsTotalMap){
   if(key==='total_leads'){
-    const total = catsTotalMap[funnelRow.weekKey];
-    const ma = total ? total.ma : null;
-    if(funnelRow.signups==null && funnelRow.leads==null && ma==null) return null;
-    return (funnelRow.signups||0) + (funnelRow.leads||0) + (ma||0);
+    // "Total Leads" is just column H ("SS + Leads") from CvR 2027 — already pre-computed
+    // in the sheet itself, not something to derive from the category tabs.
+    return funnelRow.ss_leads;
   }
   if(['ms','ma','opps','cw','arr'].includes(key)){
     const total = catsTotalMap[funnelRow.weekKey];
@@ -656,9 +695,17 @@ function seriesValue(key, funnelRow, catsTotalMap){
   }
   return funnelRow[key]===undefined ? null : funnelRow[key];
 }
+let showTraffic = true;
 function buildToggles(){
   const row=document.getElementById('toggleRow');
   row.innerHTML='';
+
+  const trafficChip=document.createElement('div');
+  trafficChip.className='toggle-chip'+(showTraffic?' active':'');
+  trafficChip.innerHTML=`<span class="dot" style="background:linear-gradient(135deg,#67EADD,#22DBC8)"></span>Traffic (bars)`;
+  trafficChip.addEventListener('click',()=>{ showTraffic=!showTraffic; trafficChip.classList.toggle('active', showTraffic); drawFunnelChart(); });
+  row.appendChild(trafficChip);
+
   SERIES_DEFS.forEach(s=>{
     const chip=document.createElement('div');
     chip.className='toggle-chip'+(s.active?' active':'');
@@ -715,18 +762,20 @@ function drawFunnelChart(){
   defs+='</defs>';
   let svgContent=defs;
 
-  ticks.forEach(t=>{
-    const y=padTop+(chartH-(t/maxBar)*chartH);
-    svgContent+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="${gridLineColor()}" stroke-width="1"/>`;
-  });
+  if(showTraffic){
+    ticks.forEach(t=>{
+      const y=padTop+(chartH-(t/maxBar)*chartH);
+      svgContent+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="${gridLineColor()}" stroke-width="1"/>`;
+    });
 
-  for(let i=0;i<n;i++){
-    if(barVals[i]==null) continue; // genuinely blank cell — no bar drawn, not treated as 0
-    const bh=(barVals[i]/maxBar)*chartH;
-    const x=padL+i*PER_WEEK+gap/2;
-    const y=padTop+(chartH-bh);
-    svgContent+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="url(#barGrad)" filter="url(#glowBar)"><title>${labels[i]}: ${barVals[i].toLocaleString()} traffic</title></rect>`;
-    svgContent+=`<text x="${(x+barW/2).toFixed(1)}" y="${Math.max(y-6,20).toFixed(1)}" text-anchor="middle" style="font-size:10.5px;font-weight:600;fill:${barLabelColor()};">${barVals[i].toLocaleString()}</text>`;
+    for(let i=0;i<n;i++){
+      if(barVals[i]==null) continue; // genuinely blank cell — no bar drawn, not treated as 0
+      const bh=(barVals[i]/maxBar)*chartH;
+      const x=padL+i*PER_WEEK+gap/2;
+      const y=padTop+(chartH-bh);
+      svgContent+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="url(#barGrad)" filter="url(#glowBar)"><title>${labels[i]}: ${barVals[i].toLocaleString()} traffic</title></rect>`;
+      svgContent+=`<text x="${(x+barW/2).toFixed(1)}" y="${Math.max(y-6,20).toFixed(1)}" text-anchor="middle" style="font-size:10.5px;font-weight:600;fill:${barLabelColor()};">${barVals[i].toLocaleString()}</text>`;
+    }
   }
 
   activeSeries.forEach((s,idx)=>{
@@ -793,12 +842,15 @@ function drawFunnelChart(){
   // from (base page color + translucent tint), so it's a pixel-perfect match in both themes
   // instead of a hardcoded guess that can drift out of sync with the real card background.
   const axisSvg = document.getElementById('funnelAxisOverlay');
-  let axisContent = `<rect x="0" y="0" width="${padL}" height="${H}" style="fill:var(--bg);"/>`;
-  axisContent += `<rect x="0" y="0" width="${padL}" height="${H}" style="fill:var(--card);"/>`;
-  ticks.forEach(t=>{
-    const y=padTop+(chartH-(t/maxBar)*chartH);
-    axisContent += `<text x="${(padL-10).toFixed(1)}" y="${(y+3.5).toFixed(1)}" text-anchor="end" class="axis-label">${t.toLocaleString()}</text>`;
-  });
+  let axisContent = '';
+  if(showTraffic){
+    axisContent = `<rect x="0" y="0" width="${padL}" height="${H}" style="fill:var(--bg);"/>`;
+    axisContent += `<rect x="0" y="0" width="${padL}" height="${H}" style="fill:var(--card);"/>`;
+    ticks.forEach(t=>{
+      const y=padTop+(chartH-(t/maxBar)*chartH);
+      axisContent += `<text x="${(padL-10).toFixed(1)}" y="${(y+3.5).toFixed(1)}" text-anchor="end" class="axis-label">${t.toLocaleString()}</text>`;
+    });
+  }
   axisSvg.setAttribute('viewBox', `0 0 ${padL} ${H}`);
   axisSvg.innerHTML = axisContent;
   axisSvg.style.width = padL+'px';
@@ -806,10 +858,89 @@ function drawFunnelChart(){
 }
 
 // ================= funnel table =================
+// ================= sortable table headers =================
+// Both tables default to Week, descending (latest first). Clicking a header sorts by that
+// column; clicking the same header again flips the direction. Nulls always sort to the end
+// regardless of direction, so N/A rows don't scatter unpredictably through the list.
+let funnelSortState = {key:'weekKey', dir:'desc'};
+let catSortState = {key:'weekKey', dir:'desc'};
+
+function parsePercentForSort(s){
+  if(s==null || s==='') return null;
+  const n = parseFloat(String(s).replace('%',''));
+  return isNaN(n) ? null : n;
+}
+function funnelSortValue(row, key){
+  if(key==='cvr_lead' || key==='cvr_hf' || key==='cvr_combined') return parsePercentForSort(row[key]);
+  return row[key];
+}
+function catSortValue(row, key){
+  if(key==='weekKey') return row.weekKey;
+  if(key==='traffic') return row.traffic;
+  const total = row.categories.find(c=>c.name.toLowerCase()==='total');
+  return total ? total[key] : null;
+}
+function sortedCopy(rows, sortState, valueGetter){
+  const copy = rows.map((row,i)=>({row,i}));
+  copy.sort((a,b)=>{
+    let va = valueGetter(a.row, sortState.key);
+    let vb = valueGetter(b.row, sortState.key);
+    if(va==null && vb==null) return a.i-b.i; // stable tiebreak
+    if(va==null) return 1;  // nulls always last, regardless of direction
+    if(vb==null) return -1;
+    if(va<vb) return sortState.dir==='asc' ? -1 : 1;
+    if(va>vb) return sortState.dir==='asc' ? 1 : -1;
+    return a.i-b.i;
+  });
+  return copy.map(c=>c.row);
+}
+function updateSortArrows(theadSelector, sortState){
+  document.querySelectorAll(theadSelector+' .sort-th').forEach(th=>{
+    const existing = th.querySelector('.sort-arrow');
+    if(existing) existing.remove();
+    if(th.dataset.key===sortState.key){
+      const arrow = document.createElement('span');
+      arrow.className = 'sort-arrow';
+      arrow.textContent = sortState.dir==='asc' ? '\u25B2' : '\u25BC';
+      th.appendChild(arrow);
+    }
+  });
+}
+function wireSortableHeader(theadSelector, sortStateGetter, sortStateSetter, renderFn){
+  document.querySelectorAll(theadSelector+' .sort-th').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const state = sortStateGetter();
+      if(state.key===th.dataset.key) state.dir = state.dir==='asc' ? 'desc' : 'asc';
+      else { state.key = th.dataset.key; state.dir = 'desc'; }
+      sortStateSetter(state);
+      renderFn();
+    });
+  });
+}
+
+// Distinct from getThisWeekIndex() (the calendar week containing today): this finds the
+// latest week that actually has real populated traffic, since the GA4 recipe can lag behind
+// the calendar (e.g. today falls in the 09/06 week, but that week hasn't been reported yet).
+function getLatestRealDataIndex(){
+  const cap = getThisWeekIndex(); // never show data "from the future" even if a placeholder row has a stray non-zero value
+  for(let i=Math.min(cap, FUNNEL.length-1); i>=0; i--){
+    if(FUNNEL[i].traffic!=null && FUNNEL[i].traffic>0) return i;
+  }
+  return cap;
+}
+
 function renderFunnelTable(){
   const body=document.querySelector('#s1Table tbody');
   body.innerHTML='';
-  FUNNEL.forEach(d=>{
+  // The sheet is pre-templated to autofill future weeks, so anything past the latest
+  // actually-populated week is just an unfilled placeholder — same reasoning already
+  // applied to the graph (Traffic as control stat).
+  const visibleFunnel = FUNNEL.slice(0, getLatestRealDataIndex()+1);
+  const funnelDates = reconstructFunnelDates();
+  const dateByRow = new Map(FUNNEL.map((row,i)=>[row, funnelDates[i] ? funnelDates[i].getTime() : row.weekKey]));
+  const valueGetter = (row,key) => key==='weekKey' ? dateByRow.get(row) : funnelSortValue(row,key);
+  const rows = sortedCopy(visibleFunnel, funnelSortState, valueGetter);
+  rows.forEach(d=>{
     const tr=document.createElement('tr');
     tr.innerHTML=`
       <td class="week-cell">${d.week}</td>
@@ -823,6 +954,7 @@ function renderFunnelTable(){
       <td>${d.cvr_combined?d.cvr_combined:'<span class="zero-txt">N/A</span>'}</td>`;
     body.appendChild(tr);
   });
+  updateSortArrows('#s1Table', funnelSortState);
 }
 
 // ================= category table + totals =================
@@ -830,7 +962,11 @@ const catColors={'Direct Use Case':'#67EADD','Enterprise':'#8B5CF6','OEM':'#06B6
 function renderCatTable(){
   const body=document.querySelector('#catTable tbody');
   body.innerHTML='';
-  CATS.forEach((w,idx)=>{
+  const catDates = reconstructDatesForRows(CATS);
+  const dateByRow = new Map(CATS.map((row,i)=>[row, catDates[i] ? catDates[i].getTime() : row.weekKey]));
+  const valueGetter = (row,key) => key==='weekKey' ? dateByRow.get(row) : catSortValue(row,key);
+  const rows = sortedCopy(CATS, catSortState, valueGetter);
+  rows.forEach((w,idx)=>{
     const total=w.categories.find(c=>c.name==='Total')||{leads:null,hf:null,ms:null,ma:null,opps:null,cw:null,arr:null};
     const tr=document.createElement('tr');
     tr.className='cat-toggle';
@@ -863,6 +999,7 @@ function renderCatTable(){
       detailTr.classList.toggle('hidden');
     });
   });
+  updateSortArrows('#catTable', catSortState);
 }
 function renderCatTotals(){
   const totals={};
@@ -897,9 +1034,12 @@ function renderAll(){
   renderCatTotals();
 }
 renderAll();
+wireSortableHeader('#s1Table', ()=>funnelSortState, (s)=>{funnelSortState=s;}, renderFunnelTable);
+wireSortableHeader('#catTable', ()=>catSortState, (s)=>{catSortState=s;}, renderCatTable);
 
 // ================= live refresh — public sheet via JSONP, no API calls, no CORS issues =================
 const SHEET_ID = "1V20Z5qmS2FngYXAUsuRkRqyLrEqhenSkn1X0tRbnY2o";
+document.getElementById('footerSheetLink').href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`;
 const FUNNEL_GID = "0"; // CvR 2027
 const CATS_GIDS = ["1048622716", "1990955475", "264065823"]; // Copy of FY27Q1/Q2/Q3 NORAM Organic (by Segment / Inbound by Segment) — Traffic Recipe tab is intentionally not included
 const SHEET_URL_FUNNEL_EDIT = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit?gid=${FUNNEL_GID}`;
@@ -1108,10 +1248,7 @@ async function refreshData(){
     ]);
 
     const newFunnel = parseFunnelCSV(gvizToRows(funnelResp));
-    // DIAGNOSTIC: raw gviz rows for each category tab (first 6 rows), so we can see exactly
-    // what the Week column actually contains per tab — if one tab's cells are a genuinely
-    // different underlying type (e.g. real Date objects vs plain text), this reveals it
-    // directly instead of guessing from a text export.
+    // kept for console-only debugging if a future data issue needs tracing — no UI impact
     const rawRowsPerTab = catsResps.map(resp => gvizToRows(resp).slice(0,6));
     rawRowsPerTab.forEach((rows,i)=> console.log(`RAW ROWS for CATS_GIDS[${i}] = ${CATS_GIDS[i]}:`, rows));
     const newCats = catsResps.flatMap(resp => parseCatsCSV(gvizToRows(resp)));
@@ -1122,32 +1259,12 @@ async function refreshData(){
     CATS = newCats;
     weeksToShow = Math.min(15, FUNNEL.length);
     renderAll();
-
-    // DIAGNOSTIC: full parsed CATS array in console, plus a per-week ARR resolution
-    // table in the Data Source panel — helps pinpoint exactly which weeks/fields the
-    // live sheet is actually returning vs. what's expected, without needing devtools.
     console.log('RAW PARSED CATS:', JSON.parse(JSON.stringify(CATS)));
-    const arrDiagnostic = CATS.map(w=>{
-      const total = w.categories.find(c=>c.name.toLowerCase()==='total');
-      return `${w.week}: Total row ${total ? 'FOUND' : 'MISSING'}, arr=${total ? JSON.stringify(total.arr) : 'n/a'}`;
-    }).join('<br>');
-    const rawRowsDiagnostic = rawRowsPerTab.map((rows,i)=>
-      `<b>CATS_GIDS[${i}] = ${CATS_GIDS[i]}</b> (first 6 rows):<br><pre style="white-space:pre-wrap;font-size:10.5px;margin:4px 0 10px;">${rows.map(r=>JSON.stringify(r)).join('\n')}</pre>`
-    ).join('');
 
     lastRefreshMeta = { timestamp: new Date() };
     document.getElementById('lastRefreshed').innerHTML =
       `Last refreshed <b>${lastRefreshMeta.timestamp.toLocaleString()}</b> &middot; direct from Google Sheets, no API calls`;
     document.getElementById('refreshBtnDock').title = 'Last refreshed '+lastRefreshMeta.timestamp.toLocaleString();
-    document.getElementById('datasourceBody').innerHTML =
-      `<b>Live pull succeeded</b> — read straight from the public sheet, zero token usage.<br>
-       Funnel weeks loaded: <b>${FUNNEL.map(d=>d.week).join(', ')}</b><br>
-       Category weeks loaded: <b>${CATS.map(d=>d.week).join(', ')}</b><br>
-       Refresh as many times as you want — every click re-reads the sheet live, there's no caching.
-       <details style="margin-top:10px;"><summary style="cursor:pointer;color:var(--teal);">ARR diagnostic (per-week)</summary>
-       <div style="margin-top:6px;font-size:11px;line-height:1.7;">${arrDiagnostic}</div></details>
-       <details style="margin-top:10px;"><summary style="cursor:pointer;color:var(--teal);">Raw rows per category tab (debug)</summary>
-       <div style="margin-top:6px;">${rawRowsDiagnostic}</div></details>`;
     showStatus('&#10003; Refreshed straight from Google Sheets.', 'info');
 
   }catch(err){
